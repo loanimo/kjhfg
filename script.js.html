@@ -1,0 +1,362 @@
+let balance = Number(localStorage.getItem('lotto_balance')) || 15500;
+let currentPackageSessionWon = 0;
+
+let pendingApplications = JSON.parse(localStorage.getItem('lotto_pendingApps')) || [];
+let chatThreads = JSON.parse(localStorage.getItem('lotto_chatThreads')) || {
+    "01994500030": {
+        clientName: "মেহেদী হাসান",
+        messages: [
+            { sender: 'admin', text: 'স্বাগতম! গ্লোবাল লটারি প্রো-তে আপনাকে কীভাবে সাহায্য করতে পারি?' }
+        ]
+    }
+};
+
+let currentUser = JSON.parse(localStorage.getItem('lotto_currentUser')) || null;
+let allRegisteredUsers = JSON.parse(localStorage.getItem('lotto_allUsers')) || [];
+let selectedChatPhone = null;
+
+function saveData() {
+    localStorage.setItem('lotto_balance', balance);
+    localStorage.setItem('lotto_pendingApps', JSON.stringify(pendingApplications));
+    localStorage.setItem('lotto_currentUser', JSON.stringify(currentUser));
+    localStorage.setItem('lotto_allUsers', JSON.stringify(allRegisteredUsers));
+    localStorage.setItem('lotto_chatThreads', JSON.stringify(chatThreads));
+}
+
+let logoClickCount = 0;
+let logoClickTimer = null;
+function handleLogoTripleClick() {
+    logoClickCount++;
+    if (logoClickCount === 3) {
+        logoClickCount = 0;
+        clearTimeout(logoClickTimer);
+        document.getElementById('adminLoginModal').classList.remove('hidden');
+        loadAdminChatList();
+    } else {
+        clearTimeout(logoClickTimer);
+        logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 600);
+    }
+}
+
+window.onload = function() {
+    checkAuthUIState();
+    renderChatMessages();
+};
+
+function checkAuthUIState() {
+    let authButtonsArea = document.getElementById('authButtonsArea');
+    let userQuickBar = document.getElementById('userProfileQuickBar');
+    if (!authButtonsArea) return;
+
+    if (currentUser && currentUser.phone) {
+        authButtonsArea.innerHTML = `
+            <button onclick="openUserDashboard()" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 px-3 py-1.5 rounded-full text-xs font-bold border border-slate-700"><i class="fa-solid fa-user mr-1"></i> ড্যাশবোর্ড</button>
+            <button onclick="handleSignOut()" class="bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-1.5 rounded-full text-xs font-bold border border-red-500/40"><i class="fa-solid fa-right-from-bracket mr-1"></i> সাইন আউট</button>
+        `;
+        if(userQuickBar) userQuickBar.classList.remove('hidden');
+    } else {
+        authButtonsArea.innerHTML = `
+            <button onclick="openSignInModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-full text-xs font-bold border border-slate-700">সাইন ইন</button>
+            <button onclick="openSignUpModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-full text-xs font-bold shadow">সাইন আপ</button>
+        `;
+        if(userQuickBar) userQuickBar.classList.add('hidden');
+    }
+}
+
+function handleSignOut() {
+    currentUser = null;
+    localStorage.removeItem('lotto_currentUser');
+    checkAuthUIState();
+    showBottomLeftPopup('🔒 সফলভাবে সাইন আউট করা হয়েছে!');
+    setTimeout(() => { location.reload(); }, 1000);
+}
+
+function showBottomLeftPopup(text) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = "bg-slate-900/95 border border-emerald-500/60 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl text-xs font-bold flex items-center";
+    toast.innerHTML = `<i class="fa-solid fa-bell text-amber-400 mr-2"></i><span>${text}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+}
+
+function toggleChatBox() {
+    if (!currentUser) { alert('আগে সাইন ইন করুন!'); return; }
+    document.getElementById('chatBoxContainer').classList.toggle('hidden');
+    renderChatMessages();
+}
+
+function openChatForAdminCode() {
+    if (!currentUser) { alert('আগে সাইন ইন করুন!'); return; }
+    closePurchaseModal();
+    toggleChatBox();
+    let msg = `স্যার, আমি কোডের জন্য আবেদন করেছি। দয়া করে কোডটি দিন।`;
+    
+    if (!chatThreads[currentUser.phone]) {
+        chatThreads[currentUser.phone] = { clientName: currentUser.name, messages: [] };
+    }
+    chatThreads[currentUser.phone].clientName = currentUser.name;
+    chatThreads[currentUser.phone].messages.push({ sender: 'client', text: msg });
+    saveData();
+    renderChatMessages();
+    showBottomLeftPopup('💬 অ্যাডমিনের কাছে লাইভ মেসেজ পাঠানো হয়েছে!');
+}
+
+function renderChatMessages() {
+    let area = document.getElementById('chatMessagesArea');
+    if (!area || !currentUser || !currentUser.phone) return;
+    if (!chatThreads[currentUser.phone]) {
+        chatThreads[currentUser.phone] = { clientName: currentUser.name, messages: [{ sender: 'admin', text: 'স্বাগতম! কীভাবে সাহায্য করতে পারি?' }] };
+    }
+    let msgs = chatThreads[currentUser.phone].messages;
+    area.innerHTML = msgs.map(m => `
+        <div class="flex flex-col ${m.sender === 'client' ? 'items-end' : 'items-start'}">
+            <div class="p-2 rounded-xl max-w-[85%] ${m.sender === 'client' ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-200'}">
+                ${m.text}
+            </div>
+        </div>
+    `).join('');
+    area.scrollTop = area.scrollHeight;
+}
+
+function sendClientChatMessage() {
+    let inp = document.getElementById('clientChatInput');
+    let text = inp.value.trim();
+    if (!text || !currentUser) return;
+    if (!chatThreads[currentUser.phone]) {
+        chatThreads[currentUser.phone] = { clientName: currentUser.name, messages: [] };
+    }
+    chatThreads[currentUser.phone].clientName = currentUser.name;
+    chatThreads[currentUser.phone].messages.push({ sender: 'client', text });
+    inp.value = '';
+    saveData(); 
+    renderChatMessages();
+}
+
+// Admin Chat Functions
+function loadAdminChatList() {
+    let listContainer = document.getElementById('adminClientChatList');
+    let keys = Object.keys(chatThreads);
+    listContainer.innerHTML = keys.map(phone => {
+        let t = chatThreads[phone];
+        return `<div onclick="selectAdminChat('${phone}')" class="p-2 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer text-xs mb-1">
+            <strong>${t.clientName}</strong><br><span class="text-[10px] text-amber-400">${phone}</span>
+        </div>`;
+    }).join('') || '<p class="text-slate-500 text-xs">কোনো চ্যাট নেই।</p>';
+
+    document.getElementById('adminPackageRequestsTable').innerHTML = pendingApplications.map((p, i) => `
+        <tr>
+            <td class="p-2 flex items-center space-x-2">
+                <img src="${p.image}" class="w-8 h-8 rounded-full object-cover border">
+                <div><strong>${p.name}</strong><br><span class="text-[10px] text-slate-400">${p.phone}</span></div>
+            </td>
+            <td class="p-2 text-amber-300">${p.location}</td>
+            <td class="p-2">${p.pkgName}</td>
+            <td class="p-2 text-right"><button onclick="updateAppStatus(${i}, 'Approved')" class="bg-emerald-600 text-white px-2 py-1 rounded">অ্যাপ্রুভ</button></td>
+        </tr>
+    `).join('') || '<tr><td colspan="4" class="p-3 text-center">আবেদন নেই</td></tr>';
+}
+
+function selectAdminChat(phone) {
+    selectedChatPhone = phone;
+    renderAdminActiveChat();
+}
+
+function renderAdminActiveChat() {
+    if (!selectedChatPhone || !chatThreads[selectedChatPhone]) return;
+    let t = chatThreads[selectedChatPhone];
+    let box = document.getElementById('adminActiveChatBox');
+    box.innerHTML = t.messages.map(m => `
+        <div class="p-1.5 rounded ${m.sender === 'admin' ? 'bg-purple-900/40 text-purple-300' : 'bg-slate-900 text-slate-200'}">
+            <strong>${m.sender === 'admin' ? 'অ্যাডমিন' : t.clientName}:</strong> ${m.text}
+        </div>
+    `).join('');
+    box.scrollTop = box.scrollHeight;
+}
+
+function sendAdminDirectReply() {
+    let inp = document.getElementById('adminReplyInput');
+    let text = inp.value.trim();
+    if (!text || !selectedChatPhone) { alert('মেসেজ লিখুন এবং ক্লায়েন্ট সিলেক্ট করুন!'); return; }
+
+    if (chatThreads[selectedChatPhone]) {
+        chatThreads[selectedChatPhone].messages.push({ sender: 'admin', text: text });
+    }
+    inp.value = '';
+    saveData();
+    renderAdminActiveChat();
+    renderChatMessages();
+    showBottomLeftPopup('✅ ক্লায়েন্টের নাম্বারে সরাসরি মেসেজ পাঠানো হয়েছে!');
+}
+
+let activePkgNameGlobal = "";
+let selectedPkgObj = null;
+
+function openPurchaseModal(name, price, count, tier) {
+    if (!currentUser) { alert('আগে সাইন ইন করুন!'); openSignInModal(); return; }
+    selectedPkgObj = { name, price, count, tier };
+    activePkgNameGlobal = name;
+    document.getElementById('buyerName').value = currentUser.name || '';
+    document.getElementById('buyerPhoneNumOnly').value = currentUser.phone || '';
+    document.getElementById('purchaseModal').classList.remove('hidden');
+}
+function closePurchaseModal() { document.getElementById('purchaseModal').classList.add('hidden'); }
+
+function submitPackageApplication() {
+    let name = document.getElementById('buyerName').value.trim();
+    let phone = document.getElementById('buyerPhoneNumOnly').value.trim();
+    let location = document.getElementById('buyerLocation').value.trim();
+    let code = document.getElementById('buyerAdminCode').value.trim().toUpperCase();
+    let fileInput = document.getElementById('buyerImageUpload');
+    
+    if (!name || !phone || !location || !code) { alert('সব তথ্য পূরণ করুন!'); return; }
+    
+    let imageUrl = currentUser.image || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150";
+    if (fileInput.files && fileInput.files[0]) {
+        let reader = new FileReader();
+        reader.onload = function(e) {
+            imageUrl = e.target.result;
+            currentUser.image = imageUrl;
+            currentUser.location = location;
+            finishAppSubmission(name, phone, location, code, imageUrl);
+        };
+        reader.readAsDataURL(fileInput.files[0]);
+    } else {
+        currentUser.location = location;
+        finishAppSubmission(name, phone, location, code, imageUrl);
+    }
+}
+
+function finishAppSubmission(name, phone, location, code, imageUrl) {
+    pendingApplications.push({
+        id: 'APP-' + Math.floor(1000+Math.random()*9000),
+        name, phone, location, pkgName: activePkgNameGlobal, code, image: imageUrl, status: 'Pending'
+    });
+    saveData();
+    closePurchaseModal();
+    alert('✅ আবেদন সফলভাবে জমা হয়েছে!');
+    startScratchGame(activePkgNameGlobal);
+}
+
+function startScratchGame(pkgName) {
+    currentPackageSessionWon = 0;
+    document.getElementById('currentPkgWonAmount').innerText = "৳০";
+    document.getElementById('gameViewDate').innerText = new Date().toLocaleDateString('bn-BD');
+    document.getElementById('gameViewLocation').innerText = currentUser.location || "বাংলাদেশ (+880)";
+
+    let grid = '';
+    for (let i = 0; i < 10; i++) {
+        let amt = Math.random() > 0.3 ? Math.floor(Math.random() * 50000) + 5000 : 0;
+        grid += `<div onclick="revealCard(this, ${amt})" class="bg-slate-900 border border-slate-700 h-24 rounded-xl flex flex-col items-center justify-center p-2 text-center cursor-pointer hover:border-amber-500"><span class="text-xs text-amber-400 font-bold">কার্ড #${i+1}</span><span class="text-xs text-slate-400 card-content mt-1">স্ক্র্যাচ করুন</span></div>`;
+    }
+    document.getElementById('packageCardsGrid').innerHTML = grid;
+    document.getElementById('mainContainer').classList.add('hidden');
+    document.getElementById('checkoutView').classList.remove('hidden');
+}
+
+function revealCard(el, amount) {
+    if (el.dataset.scratched === "true") return;
+    el.dataset.scratched = "true";
+    let content = el.querySelector('.card-content');
+    if (amount > 0) {
+        content.innerText = "৳" + amount.toLocaleString();
+        content.className = "text-emerald-400 font-black text-sm mt-1";
+        currentPackageSessionWon += amount;
+        balance += amount;
+        document.getElementById('currentPkgWonAmount').innerText = "৳" + currentPackageSessionWon.toLocaleString();
+        saveData();
+    } else {
+        content.innerText = "খালি";
+        el.classList.add('opacity-50');
+    }
+}
+
+function showMainView() {
+    document.getElementById('checkoutView').classList.add('hidden');
+    document.getElementById('mainContainer').classList.remove('hidden');
+}
+
+function openFinalCertificate() {
+    if (currentPackageSessionWon <= 0) { alert('আগে কার্ড স্ক্র্যাচ করে পুরস্কার জিতুন!'); return; }
+    
+    let winId = 'WIN-' + Math.floor(100000 + Math.random() * 900000);
+    let todayDate = new Date().toLocaleDateString('bn-BD');
+
+    document.getElementById('certUserName').innerText = currentUser ? currentUser.name : "মেহেদী হাসান";
+    document.getElementById('certUserImg').src = currentUser ? currentUser.image : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150";
+    document.getElementById('certPrizeAmount').innerText = "৳" + currentPackageSessionWon.toLocaleString();
+    document.getElementById('certDateDisplay').innerText = todayDate;
+    document.getElementById('certIdDisplay').innerText = winId;
+    document.getElementById('certLocationDisplay').innerText = currentUser.location || "বাংলাদেশ (+880)";
+
+    document.getElementById('certificateModal').classList.remove('hidden');
+}
+
+function downloadCertificateAsImage() {
+    let certElement = document.getElementById('printableCertificate');
+    html2canvas(certElement, { scale: 2, useCORS: true }).then(canvas => {
+        let link = document.createElement('a');
+        link.download = `Winning-Certificate-${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showBottomLeftPopup('✅ সার্টিফিকেট সরাসরি ইমেজ হিসেবে ডাউনলোড হয়েছে!');
+    }).catch(err => { alert('ডাউনলোড করার সময় সমস্যা হয়েছে!'); });
+}
+
+function openSignUpModal() { document.getElementById('signUpModal').classList.remove('hidden'); }
+function closeSignUpModal() { document.getElementById('signUpModal').classList.add('hidden'); }
+function openSignInModal() { document.getElementById('signInModal').classList.remove('hidden'); }
+function closeSignInModal() { document.getElementById('signInModal').classList.add('hidden'); }
+
+function handleSignUp() {
+    let name = document.getElementById('suName').value.trim();
+    let phone = document.getElementById('suPhone').value.trim();
+    let pass = document.getElementById('suPass').value;
+    if (!name || !phone || !pass) { alert('সব ফিল্ড পূরণ করুন!'); return; }
+
+    currentUser = { name, phone, pass, image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150", location: "বাংলাদেশ" };
+    allRegisteredUsers.push(currentUser);
+    saveData();
+    closeSignUpModal();
+    checkAuthUIState();
+    showBottomLeftPopup('✅ সাইন আপ সফল!');
+}
+
+function handleSignIn() {
+    let phone = document.getElementById('siPhoneOrEmail').value.trim();
+    let pass = document.getElementById('siPass').value;
+    let found = allRegisteredUsers.find(u => u.phone === phone && u.pass === pass);
+    if (found || (phone === "01994500030" && pass === "123456")) {
+        currentUser = found || { name: "মেহেদী হাসান", phone: "01994500030", pass: "123456", image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150", location: "ঢাকা" };
+        saveData();
+        closeSignInModal();
+        checkAuthUIState();
+        showBottomLeftPopup('✅ সাইন ইন সফল!');
+    } else {
+        alert('❌ ভুল ফোন বা পাসওয়ার্ড!');
+    }
+}
+
+function openUserDashboard() {
+    if(!currentUser) return;
+    document.getElementById('dashUserName').innerText = currentUser.name;
+    document.getElementById('dashUserPhone').innerText = currentUser.phone;
+    document.getElementById('userDashboardModal').classList.remove('hidden');
+}
+function closeUserDashboard() { document.getElementById('userDashboardModal').classList.add('hidden'); }
+
+function verifyAdminPassword() {
+    if (document.getElementById('adminPasswordInput').value === 'Mehedi12@#') {
+        document.getElementById('adminPasswordInput').value = '';
+        document.getElementById('adminLoginModal').classList.add('hidden');
+        document.getElementById('adminModal').classList.remove('hidden');
+        loadAdminChatList();
+    } else { alert('❌ ভুল পাসওয়ার্ড!'); }
+}
+
+function updateAppStatus(idx, status) {
+    pendingApplications[idx].status = status;
+    saveData();
+    loadAdminChatList();
+    showBottomLeftPopup('✅ আবেদন অ্যাপ্রুভ করা হয়েছে!');
+}
